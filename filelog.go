@@ -8,6 +8,8 @@ import (
 	"time"
 )
 
+type FileFactory func(string) (*os.File, error)
+
 // This log writer sends output to a file
 type FileLogWriter struct {
 	rec chan *LogRecord
@@ -16,6 +18,7 @@ type FileLogWriter struct {
 	// The opened file
 	filename string
 	file     *os.File
+	filefactory FileFactory
 
 	// The logging format
 	format string
@@ -48,6 +51,10 @@ func (w *FileLogWriter) Close() {
 	close(w.rec)
 }
 
+func internalFileFactory(fn string) (*os.File, error) {
+	return os.OpenFile(fn, os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0660)
+}
+
 // NewFileLogWriter creates a new LogWriter which writes to the given file and
 // has rotation enabled if rotate is true.
 //
@@ -59,11 +66,12 @@ func (w *FileLogWriter) Close() {
 //   [%D %T] [%L] (%S) %M
 func NewFileLogWriter(fname string, rotate bool) *FileLogWriter {
 	w := &FileLogWriter{
-		rec:      make(chan *LogRecord, LogBufferLength),
-		rot:      make(chan bool),
-		filename: fname,
-		format:   "[%D %T] [%L] (%S) %M",
-		rotate:   rotate,
+		rec:      		make(chan *LogRecord, LogBufferLength),
+		rot:      		make(chan bool),
+		filename: 		fname,
+		format:   		"[%D %T] [%L] (%S) %M",
+		rotate:   		rotate,
+		filefactory: 	internalFileFactory,
 	}
 
 	// open the file for the first time
@@ -156,7 +164,7 @@ func (w *FileLogWriter) intRotate() error {
 	}
 
 	// Open the log file
-	fd, err := os.OpenFile(w.filename, os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0660)
+	fd, err := w.filefactory(w.filename)
 	if err != nil {
 		return err
 	}
@@ -179,6 +187,11 @@ func (w *FileLogWriter) intRotate() error {
 // message is written.
 func (w *FileLogWriter) SetFormat(format string) *FileLogWriter {
 	w.format = format
+	return w
+}
+
+func (w *FileLogWriter) SetFileFactory(factory FileFactory) *FileLogWriter {
+	w.filefactory = factory
 	return w
 }
 
