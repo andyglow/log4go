@@ -51,7 +51,7 @@ func (w *FileLogWriter) Close() {
 	close(w.rec)
 }
 
-func internalFileFactory(fn string) (*os.File, error) {
+func DefaultFileFactory(fn string) (*os.File, error) {
 	return os.OpenFile(fn, os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0660)
 }
 
@@ -64,14 +64,14 @@ func internalFileFactory(fn string) (*os.File, error) {
 //
 // The standard log-line format is:
 //   [%D %T] [%L] (%S) %M
-func NewFileLogWriter(fname string, rotate bool) *FileLogWriter {
+func NewFileLogWriter(fname string, rotate bool, filefactory *FileFactory) *FileLogWriter {
 	w := &FileLogWriter{
 		rec:      		make(chan *LogRecord, LogBufferLength),
 		rot:      		make(chan bool),
 		filename: 		fname,
 		format:   		"[%D %T] [%L] (%S) %M",
 		rotate:   		rotate,
-		filefactory: 	internalFileFactory,
+		filefactory: 	filefactory,
 	}
 
 	// open the file for the first time
