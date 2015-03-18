@@ -190,11 +190,6 @@ func (w *FileLogWriter) SetFormat(format string) *FileLogWriter {
 	return w
 }
 
-func (w *FileLogWriter) SetFileFactory(factory FileFactory) *FileLogWriter {
-	w.filefactory = factory
-	return w
-}
-
 // Set the logfile header and footer (chainable).  Must be called before the first log
 // message is written.  These are formatted similar to the FormatLogRecord (e.g.
 // you can use %D and %T in your header/footer for date and time).
