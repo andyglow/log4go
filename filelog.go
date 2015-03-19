@@ -10,13 +10,21 @@ import (
 
 type FileFactory func(string) (*os.File, error)
 
+type FileLogWriterOptions struct {
+	// Supposed file name
+	filename string
+	// Keep old logfiles (.001, .002, etc)
+	rotate bool
+	// File Factory to use
+	filefactory FileFactory
+}
+
 // This log writer sends output to a file
 type FileLogWriter struct {
 	rec chan *LogRecord
 	rot chan bool
 
 	// The opened file
-	filename string
 	file     *os.File
 	filefactory FileFactory
 
@@ -38,8 +46,8 @@ type FileLogWriter struct {
 	daily          bool
 	daily_opendate int
 
-	// Keep old logfiles (.001, .002, etc)
-	rotate bool
+	// Options
+	options FileLogWriterOptions
 }
 
 // This is the FileLogWriter's output method
@@ -64,19 +72,30 @@ func DefaultFileFactory(fn string) (*os.File, error) {
 //
 // The standard log-line format is:
 //   [%D %T] [%L] (%S) %M
-func NewFileLogWriter(fname string, rotate bool, filefactory FileFactory) *FileLogWriter {
+func NewFileLogWriter(fname string, rotate bool) *FileLogWriter {
+	return NewFileLogWriterWithOptions(FileLogWriterOptions{
+		filename:	fname,
+		rotate:		rotate,
+		filefactory:	DefaultFileFactory,
+	})
+}
+
+// NewFileLogWriter creates a new LogWriter which writes to the file created
+// by provided factory and has rotation enabled if rotate is true.
+//
+// For more information please see NewFileLogWriter(string, bool)
+//
+func NewFileLogWriterWithOptions(options FileLogWriterOptions) *FileLogWriter {
 	w := &FileLogWriter{
 		rec:      		make(chan *LogRecord, LogBufferLength),
 		rot:      		make(chan bool),
-		filename: 		fname,
 		format:   		"[%D %T] [%L] (%S) %M",
-		rotate:   		rotate,
-		filefactory: 	filefactory,
+		options:   		options,
 	}
 
 	// open the file for the first time
 	if err := w.intRotate(); err != nil {
-		fmt.Fprintf(os.Stderr, "FileLogWriter(%q): %s\n", w.filename, err)
+		fmt.Fprintf(os.Stderr, "FileLogWriter(%q): %s\n", w.options.filename, err)
 		return nil
 	}
 
@@ -92,7 +111,7 @@ func NewFileLogWriter(fname string, rotate bool, filefactory FileFactory) *FileL
 			select {
 			case <-w.rot:
 				if err := w.intRotate(); err != nil {
-					fmt.Fprintf(os.Stderr, "FileLogWriter(%q): %s\n", w.filename, err)
+					fmt.Fprintf(os.Stderr, "FileLogWriter(%q): %s\n", w.options.filename, err)
 					return
 				}
 			case rec, ok := <-w.rec:
@@ -104,7 +123,7 @@ func NewFileLogWriter(fname string, rotate bool, filefactory FileFactory) *FileL
 					(w.maxsize > 0 && w.maxsize_cursize >= w.maxsize) ||
 					(w.daily && now.Day() != w.daily_opendate) {
 					if err := w.intRotate(); err != nil {
-						fmt.Fprintf(os.Stderr, "FileLogWriter(%q): %s\n", w.filename, err)
+						fmt.Fprintf(os.Stderr, "FileLogWriter(%q): %s\n", w.options.filename, err)
 						return
 					}
 				}
@@ -112,7 +131,7 @@ func NewFileLogWriter(fname string, rotate bool, filefactory FileFactory) *FileL
 				// Perform the write
 				n, err := fmt.Fprint(w.file, FormatLogRecord(w.format, rec))
 				if err != nil {
-					fmt.Fprintf(os.Stderr, "FileLogWriter(%q): %s\n", w.filename, err)
+					fmt.Fprintf(os.Stderr, "FileLogWriter(%q): %s\n", w.options.filename, err)
 					return
 				}
 
@@ -140,23 +159,23 @@ func (w *FileLogWriter) intRotate() error {
 	}
 
 	// If we are keeping log files, move it to the next available number
-	if w.rotate {
-		_, err := os.Lstat(w.filename)
+	if w.options.rotate {
+		_, err := os.Lstat(w.options.filename)
 		if err == nil { // file exists
 			// Find the next available number
 			num := 1
 			fname := ""
 			for ; err == nil && num <= 999; num++ {
-				fname = w.filename + fmt.Sprintf(".%03d", num)
+				fname = w.options.filename + fmt.Sprintf(".%03d", num)
 				_, err = os.Lstat(fname)
 			}
 			// return error if the last file checked still existed
 			if err == nil {
-				return fmt.Errorf("Rotate: Cannot find free log number to rename %s\n", w.filename)
+				return fmt.Errorf("Rotate: Cannot find free log number to rename %s\n", w.options.filename)
 			}
 
 			// Rename the file to its newfound home
-			err = os.Rename(w.filename, fname)
+			err = os.Rename(w.options.filename, fname)
 			if err != nil {
 				return fmt.Errorf("Rotate: %s\n", err)
 			}
@@ -164,7 +183,7 @@ func (w *FileLogWriter) intRotate() error {
 	}
 
 	// Open the log file
-	fd, err := w.filefactory(w.filename)
+	fd, err := w.options.filefactory(w.options.filename)
 	if err != nil {
 		return err
 	}
@@ -231,14 +250,14 @@ func (w *FileLogWriter) SetRotateDaily(daily bool) *FileLogWriter {
 // new log is opened.
 func (w *FileLogWriter) SetRotate(rotate bool) *FileLogWriter {
 	//fmt.Fprintf(os.Stderr, "FileLogWriter.SetRotate: %v\n", rotate)
-	w.rotate = rotate
+	w.options.rotate = rotate
 	return w
 }
 
 // NewXMLLogWriter is a utility method for creating a FileLogWriter set up to
 // output XML record log messages instead of line-based ones.
-func NewXMLLogWriter(fname string, rotate bool, filefactory FileFactory) *FileLogWriter {
-	return NewFileLogWriter(fname, rotate, filefactory).SetFormat(
+func NewXMLLogWriter(fname string, rotate bool) *FileLogWriter {
+	return NewFileLogWriter(fname, rotate).SetFormat(
 		`	<record level="%L">
 		<timestamp>%D %T</timestamp>
 		<source>%S</source>
